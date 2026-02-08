@@ -39,10 +39,21 @@ Single call, not retries. Character dedup and voice generation both use Sonnet i
 ### Tests are real
 No mocks. Tests call actual Claude APIs and TTS tools. Audio synthesis test may hang if TTS unavailable.
 
+### Haiku JSONL format variance
+Haiku sometimes outputs `{"speaker_id": "name", "text": "..."}` instead of `{"name": "text"}`. The `parse_jsonl_response` function normalizes both formats.
+
+### TTS multi command
+Audio synthesis uses `tts multi` per chapter (one subprocess call per chapter, not per line). The multi command handles per-line synthesis and concatenation internally via a work directory.
+
+### M4B idempotency caveat
+`assemble_m4b` skips if the .m4b file exists. When re-running with different `--max-chapters`, delete the existing .m4b first.
+
 ## Commands
 
 ```bash
-./run create book.epub    # Full pipeline
-./run step <step> book.epub  # Single step
-./run test <target>       # Run tests
+./run create book.epub                       # Full pipeline
+./run step <step> book.epub                  # Single step
+./run step audio book.epub --max-chapters 6  # First 6 chapters only
+./run step m4b book.epub --max-chapters 6    # M4B from first 6 chapters
+./run test <target>                          # Run tests
 ```
