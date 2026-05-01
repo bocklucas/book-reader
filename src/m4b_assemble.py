@@ -2,8 +2,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from src.arbiter_tts import tts_design_to_file
-from src.audio_synth import load_voices
+from src.arbiter_tts import tts_clone_to_file
+from src.voice_clone import voice_path
 
 PAUSE_BETWEEN_CHAPTERS_SEC = 3.0
 PAUSE_AFTER_CHIME_SEC = 0.5
@@ -64,10 +64,10 @@ def generate_chime(output_path: Path) -> None:
 # ##################################################################
 # generate announcement
 # use arbiter tts-design with narrator description to speak a chapter announcement
-def generate_announcement(text: str, narrator_description: str, output_path: Path) -> None:
+def generate_announcement(text: str, narrator_ref: Path, output_path: Path) -> None:
     if output_path.exists():
         return
-    tts_design_to_file(narrator_description, text, output_path)
+    tts_clone_to_file(narrator_ref, text, output_path)
 
 
 # ##################################################################
@@ -75,12 +75,11 @@ def generate_announcement(text: str, narrator_description: str, output_path: Pat
 # create chime and announcement wavs for each chapter
 def generate_all_announcements(output_dir: Path, title: str, chapter_files: list[Path]) -> None:
     audio_dir = output_dir / "audio"
-    if not (output_dir / "voices.json").exists():
+    voices_dir = output_dir / "voices"
+    narrator_wav = voices_dir / "narrator.wav"
+    if not narrator_wav.exists():
         return
-    voices = load_voices(output_dir)
-    if "narrator" not in voices:
-        return
-    narrator_description = voices["narrator"]
+    narrator_ref = voice_path(voices_dir, "narrator")
     chime_path = audio_dir / "chime.wav"
     generate_chime(chime_path)
     for chapter_file in chapter_files:
@@ -91,7 +90,7 @@ def generate_all_announcements(output_dir: Path, title: str, chapter_files: list
         if chapter_name.lower() == "intro":
             continue
         announce_text = f"{title}. {chapter_name}."
-        generate_announcement(announce_text, narrator_description, announce_path)
+        generate_announcement(announce_text, narrator_ref, announce_path)
 
 
 # ##################################################################

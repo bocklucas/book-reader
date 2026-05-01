@@ -1,3 +1,4 @@
+import base64
 import logging
 import time
 from pathlib import Path
@@ -6,39 +7,53 @@ from arbiter_client import ArbiterClient, ArbiterError
 
 log = logging.getLogger(__name__)
 
-MAX_RETRIES = 5
-RETRY_BACKOFF_SEC = 30
+MAX_RETRIES = 10
+RETRY_BACKOFF_SEC = 5
 
 
 # ##################################################################
-# submit and fetch one
-# submit a tts-design job, poll, write result to output_path with retries
-def _submit_and_fetch(client: ArbiterClient, description: str, text: str,
-                      output_path: Path, language: str, temperature: float) -> None:
+# submit
+# submit a job of given type and return its id, retrying on transient errors
+def _submit(client: ArbiterClient, job_type: str, params: dict) -> str:
     last_err: Exception | None = None
     for attempt in range(MAX_RETRIES):
         try:
-            jid = client.submit(
-                "tts-design",
-                text=text,
-                instruct=description,
-                language=language,
-                temperature=temperature,
-                force=True,
-            )
-            client.poll(jid, interval=1.0, timeout=900)
+            return client.submit(job_type, **params)
+        except (ArbiterError, ConnectionError, OSError) as e:
+            last_err = e
+            wait = min(RETRY_BACKOFF_SEC * (attempt + 1), 60)
+            log.warning("submit %s attempt %d/%d failed: %s — retrying in %ds",
+                        job_type, attempt + 1, MAX_RETRIES, e, wait)
+            time.sleep(wait)
+    raise RuntimeError(f"submit {job_type} failed after {MAX_RETRIES} attempts: {last_err}")
+
+
+# ##################################################################
+# fetch
+# poll an existing job and write result; on failure resubmit and retry
+def _fetch(client: ArbiterClient, job_id: str, job_type: str, params: dict,
+           output_path: Path) -> None:
+    current_jid = job_id
+    last_err: Exception | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            client.poll(current_jid, interval=0.5, timeout=900)
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_bytes(client.get_result_bytes(jid))
+            output_path.write_bytes(client.get_result_bytes(current_jid))
             if output_path.stat().st_size >= 100:
                 return
             raise RuntimeError("empty output")
         except (ArbiterError, RuntimeError, ConnectionError, OSError) as e:
             last_err = e
-            wait = RETRY_BACKOFF_SEC * (attempt + 1)
-            log.warning("tts-design attempt %d/%d for %s failed: %s — retrying in %ds",
-                        attempt + 1, MAX_RETRIES, output_path.name, e, wait)
+            wait = min(RETRY_BACKOFF_SEC * (attempt + 1), 60)
+            log.warning("fetch %s attempt %d/%d for %s failed: %s — resubmitting in %ds",
+                        job_type, attempt + 1, MAX_RETRIES, output_path.name, e, wait)
             time.sleep(wait)
-    raise RuntimeError(f"tts-design failed after {MAX_RETRIES} attempts for {output_path}: {last_err}")
+            try:
+                current_jid = _submit(client, job_type, params)
+            except Exception as e2:
+                last_err = e2
+    raise RuntimeError(f"fetch {job_type} failed after {MAX_RETRIES} attempts for {output_path}: {last_err}")
 
 
 # ##################################################################
@@ -46,60 +61,75 @@ def _submit_and_fetch(client: ArbiterClient, description: str, text: str,
 # generate a voice from description and save the wav locally
 def tts_design_to_file(description: str, text: str, output_path: Path,
                        language: str = "English", temperature: float = 0.9) -> Path:
+    if output_path.exists() and output_path.stat().st_size >= 100:
+        return output_path
     client = ArbiterClient(timeout=60)
-    _submit_and_fetch(client, description, text, output_path, language, temperature)
+    params = {
+        "text": text,
+        "instruct": description,
+        "language": language,
+        "temperature": temperature,
+        "force": True,
+    }
+    jid = _submit(client, "tts-design", params)
+    _fetch(client, jid, "tts-design", params, output_path)
     return output_path
 
 
 # ##################################################################
-# tts design many
-# submit tts-design jobs in parallel batches with per-job retries
-def tts_design_many(jobs: list[dict], language: str = "English",
-                    temperature: float = 0.9) -> list[Path]:
-    client = ArbiterClient(timeout=60)
-    submissions: list[dict] = []
-    # Submit all jobs first; on submit failure, retry inline.
+# tts clone to file
+# clone a voice from a reference WAV and save the result locally
+def tts_clone_to_file(ref_wav: Path, text: str, output_path: Path,
+                      language: str = "English", temperature: float = 0.7) -> Path:
+    if output_path.exists() and output_path.stat().st_size >= 100:
+        return output_path
+    client = ArbiterClient(timeout=120)
+    ref_b64 = base64.b64encode(ref_wav.read_bytes()).decode()
+    params = {
+        "text": text,
+        "ref_audio": ref_b64,
+        "language": language,
+        "temperature": temperature,
+        "force": True,
+    }
+    jid = _submit(client, "tts-clone", params)
+    _fetch(client, jid, "tts-clone", params, output_path)
+    return output_path
+
+
+# ##################################################################
+# tts clone many
+# submit a batch of tts-clone jobs (one per line) using per-line ref_wav
+def tts_clone_many(jobs: list[dict], language: str = "English",
+                   temperature: float = 0.7) -> list[Path]:
+    client = ArbiterClient(timeout=120)
+    ref_cache: dict[Path, str] = {}
+    pending: list[dict] = []
     for j in jobs:
-        for attempt in range(MAX_RETRIES):
-            try:
-                jid = client.submit(
-                    "tts-design",
-                    text=j["text"],
-                    instruct=j["description"],
-                    language=language,
-                    temperature=temperature,
-                    force=True,
-                )
-                submissions.append({
-                    "job_id": jid,
-                    "output_path": j["output_path"],
-                    "description": j["description"],
-                    "text": j["text"],
-                })
-                break
-            except (ArbiterError, ConnectionError, OSError) as e:
-                wait = RETRY_BACKOFF_SEC * (attempt + 1)
-                log.warning("submit attempt %d/%d failed: %s — retrying in %ds",
-                            attempt + 1, MAX_RETRIES, e, wait)
-                time.sleep(wait)
-        else:
-            raise RuntimeError(f"could not submit job for {j['output_path']}")
-
-    results: list[Path] = []
-    for sub in submissions:
-        out_path: Path = sub["output_path"]
-        try:
-            client.poll(sub["job_id"], interval=0.5, timeout=900)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_bytes(client.get_result_bytes(sub["job_id"]))
-            if out_path.stat().st_size < 100:
-                raise RuntimeError("empty output")
-        except (ArbiterError, RuntimeError, ConnectionError, OSError) as e:
-            # Job lost (arbiter restart, etc) — re-run synchronously with full retries.
-            log.warning("poll for %s failed (%s) — resubmitting with retries", out_path.name, e)
-            _submit_and_fetch(client, sub["description"], sub["text"], out_path, language, temperature)
-        results.append(out_path)
-    return results
+        out_path: Path = j["output_path"]
+        if out_path.exists() and out_path.stat().st_size >= 100:
+            continue
+        ref_wav: Path = j["ref_wav"]
+        if ref_wav not in ref_cache:
+            ref_cache[ref_wav] = base64.b64encode(ref_wav.read_bytes()).decode()
+        params = {
+            "text": j["text"],
+            "ref_audio": ref_cache[ref_wav],
+            "language": language,
+            "temperature": temperature,
+            "force": True,
+        }
+        jid = _submit(client, "tts-clone", params)
+        pending.append({
+            "job_id": jid,
+            "output_path": out_path,
+            "params": params,
+        })
+    for p in pending:
+        _fetch(client, p["job_id"], "tts-clone", p["params"], p["output_path"])
+    return [j["output_path"] for j in jobs]
 
 
-__all__ = ["tts_design_to_file", "tts_design_many"]
+__all__ = [
+    "tts_design_to_file", "tts_clone_to_file", "tts_clone_many",
+]

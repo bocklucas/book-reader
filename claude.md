@@ -26,6 +26,8 @@ Uses exact EPUB stem with spaces: `Scott Lynch - Book Title/` not normalized.
 ### Character analysis prompt
 Must request PHYSICAL descriptions for voice generation. "Crime boss" has no value. "Elderly man with gravelly voice" has value. Exclude plot roles and cross-character relationships.
 
+CRITICAL: nationality/region and a specific age MUST be inferred from setting cues (era, vocabulary, place names, period detail). Past failure: Paul Jonas in Otherland is clearly British (WW1, Webley gun, "fraulein", trench dialogue) but the bio just said "Young man, soldier" — wrong on nationality and age. War setting alone does not imply young. Use ALL setting evidence to nail down accent and age.
+
 ### Script generation prompt
 Must be extremely terse: "Output JSONL only. No explanations." Otherwise Haiku explains what it would do instead of outputting JSONL.
 

@@ -52,11 +52,12 @@ async def analyze_chapter(chapter_path: Path, chapter_num: int) -> dict:
     text = chapter_path.read_text(encoding="utf-8")
     prompt = f"""Analyze this chapter and identify characters who speak or have internal monologue.
 
-For each speaking character, extract ONLY voice-relevant physical details:
+For each speaking character, extract ONLY voice-relevant physical details. ALWAYS include nationality/region and a specific age if there are ANY contextual clues (setting, era, vocabulary, place names, period detail) — these are the most important signals for voice. Do not default to "young" or "American" without evidence.
+
 - Gender (from pronouns or descriptions)
-- Age (child, young adult, middle-aged, elderly, or specific if mentioned)
+- Age — be specific where possible (e.g. "early 30s", "around 50"). Only use "young/middle-aged/elderly" if no clue. War setting alone does NOT mean young.
+- Nationality / regional accent (REQUIRED if any contextual evidence exists — WWI British, South African, Egyptian, Australian, etc. Use period and setting cues, not just accent words.)
 - Physical build (large, small, thin, heavy, etc.)
-- Ethnicity or accent hints (nationality, regional background)
 - Voice/speech patterns (gruff, soft, educated, crude, accent, lisping, etc.)
 - Distinctive physical traits affecting voice (old, frail, booming, wheezing, etc.)
 
@@ -76,7 +77,7 @@ Rules:
 - Character IDs: lowercase with underscores (e.g., "jean_tannen")
 - Details must focus on VOICE generation - what would help create their voice
 - EXCLUDE: plot roles, story function, relationships to other characters, emotional descriptions
-- INCLUDE: "elderly man with gravelly voice" / "young woman, speaks formally" / "large man, booming voice"
+- INCLUDE: "elderly man with gravelly voice" / "young woman, speaks formally" / "large man, booming voice" / "British soldier, ~30s, weary, working-class accent" / "South African woman, late 20s, clear professional tone"
 - NO cross-character references (don't mention other characters in the details)
 
 Chapter {chapter_num} text:
