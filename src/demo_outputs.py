@@ -12,33 +12,33 @@ from src.voice_description import generate_voices_sync
 init(autoreset=True)
 
 SAMPLE_CHAPTER = """
-The morning sun cast long shadows across the cobblestones of Camorr's Temple District.
-Locke Lamora walked with practiced nonchalance, his threadbare coat hiding the fortune
-in jewels sewn into its lining.
+The morning sun cast long shadows across the metal hull of the starship Odyssey.
+John Doe walked with practiced nonchalance, his standard issue uniform hiding the secret
+plans sewn into its lining.
 
-"You're late," said Jean Tannen, emerging from a doorway. He was a large man, deceptively
-quick for his size, with hands that could crush walnuts or pick pockets with equal ease.
+"You're late," said Jane Smith, emerging from the airlock. She was a tall woman, deceptively
+quick for her size, with hands that could crush steel or repair a hyperdrive with equal ease.
 
-Locke shrugged. "The Sanza twins needed handling. They're getting ambitious."
+John shrugged. "The alien twins needed handling. They're getting ambitious."
 
-"Ambitious enough to cut us out?" Jean's voice held an edge of concern.
+"Ambitious enough to cut us out?" Jane's voice held an edge of concern.
 
-Locke thought about the twins - Calo with his quick tongue and Galdo with his quicker
-blade. They were family, in a way that had nothing to do with blood. He would never
-betray them, and they would never betray him. That was the way of the Gentlemen Bastards.
+John thought about the twins - Alpha with his quick tongue and Beta with his quicker
+blaster. They were family, in a way that had nothing to do with blood. He would never
+betray them, and they would never betray him. That was the way of the Galactic Rangers.
 
-"Never," Locke said firmly. "We're brothers."
+"Never," John said firmly. "We're crew."
 
-Jean nodded, satisfied. "Then let's go steal from a duke."
+Jane nodded, satisfied. "Then let's go steal from an emperor."
 
-Father Chains had taught them well - how to speak like nobles, fight like demons, and
-lie like the very gods themselves. The old priest was dead now, but his lessons lived
-on in every con they ran.
+Commander Chains had taught them well - how to speak like nobles, fight like demons, and
+lie like the very gods themselves. The old captain was dead now, but his lessons lived
+on in every mission they ran.
 
-"The Duke of Ashen Vale arrives at noon," Jean said, reviewing their plan. "His wife
+"The Emperor of Alpha Centauri arrives at noon," Jane said, reviewing their plan. "His wife
 has a weakness for fortune tellers."
 
-"And I," said Locke with a theatrical bow, "am the finest fortune teller in all of Camorr."
+"And I," said John with a theatrical bow, "am the finest fortune teller in all the galaxy."
 """
 
 
@@ -57,7 +57,7 @@ def main() -> None:
 
         # Create test files
         intro = chapters_dir / "00-intro.txt"
-        intro.write_text("The Lies of Locke Lamora by Scott Lynch.")
+        intro.write_text("The Galactic Odyssey by John Doe.")
 
         chapter1 = chapters_dir / "01-chapter_one.txt"
         chapter1.write_text(SAMPLE_CHAPTER.strip())
@@ -66,7 +66,7 @@ def main() -> None:
         print_section("STEP 1: CHARACTER ANALYSIS (Claude Haiku)")
         print(f"{Fore.WHITE}Analyzing chapter to find characters with speaking parts...{Style.RESET_ALL}\n")
 
-        analyze_characters_sync(output_dir, "The Lies of Locke Lamora", "Scott Lynch")
+        analyze_characters_sync(output_dir, "The Galactic Odyssey", "John Doe")
 
         chars = json.loads((output_dir / "characters.json").read_text())
         for char_id, info in chars.items():

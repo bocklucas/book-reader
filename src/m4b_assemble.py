@@ -2,7 +2,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from src.arbiter_tts import tts_clone_to_file
+from src.omnivoice_tts import tts_clone_to_file
 from src.voice_clone import voice_path
 
 PAUSE_BETWEEN_CHAPTERS_SEC = 3.0
@@ -63,7 +63,7 @@ def generate_chime(output_path: Path) -> None:
 
 # ##################################################################
 # generate announcement
-# use arbiter tts-design with narrator description to speak a chapter announcement
+# use omnivoice tts-clone with narrator reference to speak a chapter announcement
 def generate_announcement(text: str, narrator_ref: Path, output_path: Path) -> None:
     if output_path.exists():
         return

@@ -21,7 +21,7 @@ EPUB to M4B audiobook converter with multi-character voice synthesis.
 ## Gotchas
 
 ### Output folder naming
-Uses exact EPUB stem with spaces: `Scott Lynch - Book Title/` not normalized.
+Uses exact EPUB stem with spaces: `John Doe - Book Title/` not normalized.
 
 ### Character analysis prompt
 Must request PHYSICAL descriptions for voice generation. "Crime boss" has no value. "Elderly man with gravelly voice" has value. Exclude plot roles and cross-character relationships.

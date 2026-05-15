@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from src.audio_synth import load_voices, synthesize_chapter
+from src.audio_synth import synthesize_chapter
 
 
 # ##################################################################
@@ -29,9 +29,7 @@ def test_synthesize_chapter_real() -> None:
         output_dir = tmpdir / "output"
         audio_dir = output_dir / "audio"
         audio_dir.mkdir(parents=True)
-        voices = {
-            "narrator": "A warm male voice in his thirties. Clear and articulate with slight British accent.",
-        }
+        # Unused variable removed
         script_path = tmpdir / "01-test_chapter.jsonl"
         lines = [
             {"narrator": "Chapter One. The Beginning."},
@@ -40,7 +38,12 @@ def test_synthesize_chapter_real() -> None:
         with open(script_path, "w") as f:
             for line in lines:
                 f.write(json.dumps(line) + "\n")
-        result_path = synthesize_chapter(script_path, audio_dir, voices)
+        voices_dir = output_dir / "voices"
+        voices_dir.mkdir(parents=True)
+        (voices_dir / "narrator.wav").write_text("dummy")
+        voices_config = {"narrator": {"description": "male, moderate pitch"}}
+
+        result_path = synthesize_chapter(script_path, audio_dir, voices_dir, voices_config, {})
         assert result_path.exists()
         assert result_path.stat().st_size > 1000
         assert result_path.name == "01-test_chapter.wav"
@@ -71,7 +74,18 @@ def test_synthesize_chapter_multi_voice() -> None:
         with open(script_path, "w") as f:
             for line in lines:
                 f.write(json.dumps(line) + "\n")
-        result_path = synthesize_chapter(script_path, audio_dir, voices)
+        voices_dir = output_dir / "voices"
+        voices_dir.mkdir(parents=True)
+        (voices_dir / "narrator.wav").write_text("dummy")
+        (voices_dir / "old_woman.wav").write_text("dummy")
+        (voices_dir / "young_boy.wav").write_text("dummy")
+        
+        voices_config = {
+            "narrator": {"description": voices["narrator"]},
+            "old_woman": {"description": voices["old_woman"]},
+            "young_boy": {"description": voices["young_boy"]},
+        }
+        result_path = synthesize_chapter(script_path, audio_dir, voices_dir, voices_config, {})
         assert result_path.exists()
         assert result_path.stat().st_size > 1000
         # verify all per-line wavs were produced (one per line)
@@ -96,21 +110,14 @@ def test_synthesize_chapter_idempotent() -> None:
         script_path.write_text('{"narrator": "Hello"}\n')
         existing = audio_dir / "01-test.wav"
         existing.write_text("PRESERVED")
-        result_path = synthesize_chapter(script_path, audio_dir, {"narrator": "any"})
+        voices_dir = tmpdir / "voices"
+        voices_dir.mkdir(parents=True)
+        (voices_dir / "narrator.wav").write_text("dummy")
+        voices_config = {"narrator": {"description": "male, moderate pitch"}}
+
+        result_path = synthesize_chapter(script_path, audio_dir, voices_dir, voices_config, {})
         assert existing.read_text() == "PRESERVED"
         assert result_path == existing
 
 
-# ##################################################################
-# test load voices
-# verify voices.json parses into a description map
-def test_load_voices() -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_dir = Path(tmpdir) / "output"
-        output_dir.mkdir(parents=True)
-        (output_dir / "voices.json").write_text(json.dumps({
-            "alice": {"description": "Alice description"},
-            "bob": {"description": "Bob description"},
-        }))
-        v = load_voices(output_dir)
-        assert v == {"alice": "Alice description", "bob": "Bob description"}
+

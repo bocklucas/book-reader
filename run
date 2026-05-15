@@ -5,15 +5,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-import setproctitle
-
-setproctitle.setproctitle("book-reader")
+try:
+    import setproctitle
+    setproctitle.setproctitle("book-reader")
+except ImportError:
+    pass
 
 PROJECT_ROOT = Path(__file__).parent.resolve()
 VENV = PROJECT_ROOT / ".venv"
 VENV_PYTHON = VENV / "bin" / "python"
 VENV_PIP = VENV / "bin" / "pip"
-TEST_OUT = PROJECT_ROOT / "output" / "testing"
 
 
 # ##################################################################
@@ -28,11 +29,13 @@ def ensure_venv() -> None:
 # ##################################################################
 # run in venv
 # executes a command using the virtual environment python
-def run_venv(cmd: list[str]) -> int:
+def run_venv(cmd: list[str], extra_env: dict[str, str] | None = None) -> int:
     env = os.environ.copy()
     env["VIRTUAL_ENV"] = str(VENV)
     env["PATH"] = f"{VENV / 'bin'}:{env.get('PATH', '')}"
     env["PYTHONPATH"] = str(PROJECT_ROOT)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.call(cmd, cwd=PROJECT_ROOT, env=env)
 
 
@@ -57,12 +60,34 @@ def command_create(args: argparse.Namespace) -> int:
     if not epub_path.exists():
         print(f"Error: EPUB file not found: {epub_path}")
         return 1
-    code = f'''
-from pathlib import Path
-from src.pipeline import run_pipeline
-run_pipeline(Path("{epub_path}"))
-'''
-    return run_venv([str(VENV_PYTHON), "-c", code])
+
+    max_ch = getattr(args, "max_chapters", None) or None
+    voice_overrides = getattr(args, "voice_overrides", None)
+    kw_parts = []
+    if max_ch:
+        kw_parts.append(f"max_chapters={max_ch}")
+    if voice_overrides:
+        vo_path = Path(voice_overrides).resolve()
+        kw_parts.append(f"voice_overrides_path=Path('{vo_path}')")
+    kw_str = ", ".join(kw_parts)
+    if kw_str:
+        kw_str = ", " + kw_str
+    code = (
+        "import sys; from pathlib import Path; "
+        "from src.pipeline import run_pipeline; "
+        f"run_pipeline(Path(sys.argv[1]){kw_str})"
+    )
+
+    # Forward model-tier env vars into the subprocess
+    extra_env: dict[str, str] = {}
+    if getattr(args, "keep_models_loaded", False):
+        extra_env["KEEP_MODELS_LOADED"] = "1"
+    if getattr(args, "small_model", None):
+        extra_env["LLAMACPP_SMALL_MODEL"] = args.small_model
+    if getattr(args, "large_model", None):
+        extra_env["LLAMACPP_LARGE_MODEL"] = args.large_model
+
+    return run_venv([str(VENV_PYTHON), "-c", code, str(epub_path)], extra_env=extra_env)
 
 
 # ##################################################################
@@ -70,14 +95,9 @@ run_pipeline(Path("{epub_path}"))
 # run pytest for a specific test target and log output
 def command_test(args: argparse.Namespace) -> int:
     ensure_venv()
-    TEST_OUT.mkdir(parents=True, exist_ok=True)
     target = args.target
-    log = TEST_OUT / (target.replace("/", "_").replace("::", "_") + ".log")
     cmd = [str(VENV_PYTHON), "-m", "pytest", "-q", target, "--maxfail=1", "--disable-warnings"]
-    with open(log, "w") as f:
-        rc = run_venv(cmd)
-    print(f"Test output written to {log}")
-    return rc
+    return run_venv(cmd)
 
 
 # ##################################################################
@@ -96,21 +116,6 @@ def command_check(args: argparse.Namespace) -> int:
 
 
 # ##################################################################
-# command step
-# run a single step of the pipeline
-def command_step(args: argparse.Namespace) -> int:
-    ensure_venv()
-    epub_path = Path(args.epub).resolve()
-    if not epub_path.exists():
-        print(f"Error: EPUB file not found: {epub_path}")
-        return 1
-    cmd = [str(VENV_PYTHON), "-m", "src.step_runner", args.step, str(epub_path)]
-    if args.max_chapters:
-        cmd.extend(["--max-chapters", str(args.max_chapters)])
-    return run_venv(cmd)
-
-
-# ##################################################################
 # main
 # parse arguments and dispatch to the appropriate command handler
 def main(argv: list[str]) -> int:
@@ -122,6 +127,11 @@ def main(argv: list[str]) -> int:
 
     p_create = sub.add_parser("create", help="Convert EPUB to audiobook")
     p_create.add_argument("epub", help="Path to EPUB file")
+    p_create.add_argument("--max-chapters", type=int, default=0, help="Limit to first N chapters")
+    p_create.add_argument("--keep-models-loaded", action="store_true", help="Keep llama.cpp models loaded between stages")
+    p_create.add_argument("--small-model", type=str, default=None, help="Override small-tier model name")
+    p_create.add_argument("--large-model", type=str, default=None, help="Override large-tier model name")
+    p_create.add_argument("--voice-overrides", type=str, default=None, help="Path to voice_overrides.json for narrator/character voice overrides")
     p_create.set_defaults(func=command_create)
 
     p_test = sub.add_parser("test", help="Run a single test target")
@@ -133,12 +143,6 @@ def main(argv: list[str]) -> int:
 
     p_check = sub.add_parser("check", help="Run full suite and gates (dazpycheck)")
     p_check.set_defaults(func=command_check)
-
-    p_step = sub.add_parser("step", help="Run a single pipeline step")
-    p_step.add_argument("step", choices=["extract", "characters", "voices", "clone", "scripts", "audio", "m4b"])
-    p_step.add_argument("epub", help="Path to EPUB file")
-    p_step.add_argument("--max-chapters", type=int, default=0, help="Limit to first N chapters")
-    p_step.set_defaults(func=command_step)
 
     args = parser.parse_args(argv)
     return args.func(args)

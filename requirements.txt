@@ -1,9 +1,13 @@
 ebooklib
 beautifulsoup4
 lxml
-daz-agent-sdk
-arbiter-client @ file:///Volumes/T9/darrenoakey/src/arbiter-client
 colorama
 setproctitle
+httpx
+tqdm
+numpy
+sentence-transformers
+python-dotenv
 pytest
 ruff
+nltk

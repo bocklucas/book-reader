@@ -6,8 +6,9 @@ from pathlib import Path
 
 import ebooklib
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
-from daz_agent_sdk import Tier, agent
+from src.llm_client import query_llm
 from ebooklib import epub
+from src.state import get_hash, load_hashes, save_hashes, check_hash
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
@@ -41,9 +42,15 @@ def html_to_text(html_content: str) -> str:
     soup = BeautifulSoup(html_content, "lxml")
     for script in soup(["script", "style"]):
         script.decompose()
+    for br in soup.find_all("br"):
+        br.replace_with(" ")
     paragraphs = []
-    for element in soup.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "blockquote"]):
-        text = element.get_text(separator=" ", strip=True)
+    block_tags = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "blockquote"]
+    for element in soup.find_all(block_tags):
+        if element.find(block_tags):
+            continue
+        text = element.get_text(separator="")
+        text = re.sub(r'\s+', ' ', text).strip()
         if text:
             paragraphs.append(text)
     return "\n\n".join(paragraphs)
@@ -67,15 +74,14 @@ def extract_chapter_title(html_content: str) -> str | None:
 # is substantial item
 # check if an epub item has enough text to be a chapter
 def is_substantial_item(text: str) -> bool:
-    return len(text.strip()) >= 500
+    return len(text.strip()) >= 200
 
 
 # ##################################################################
 # query haiku
-# send a prompt to claude haiku and get text response
+# send a prompt to the llm and get text response
 async def query_haiku(prompt: str) -> str:
-    response = await agent.ask(prompt, tier=Tier.LOW)
-    return response.text.strip()
+    return await query_llm(prompt, enable_thinking=False)
 
 
 # ##################################################################
@@ -100,20 +106,25 @@ Reply with exactly one word: CONTENT or NONCONTENT"""
 async def trim_non_content(candidates: list[dict]) -> list[dict]:
     if not candidates:
         return candidates
+        
+    print(f"  Classifying {len(candidates)} sections...")
+    tasks = [classify_is_content(cand["text"], cand["filename"]) for cand in candidates]
+    results = await asyncio.gather(*tasks)
+    
     start = 0
-    for i in range(len(candidates)):
-        is_content = await classify_is_content(candidates[i]["text"], candidates[i]["filename"])
+    for i, is_content in enumerate(results):
         if is_content:
             start = i
             break
     else:
         return []
-    end = len(candidates) - 1
-    for i in range(len(candidates) - 1, start - 1, -1):
-        is_content = await classify_is_content(candidates[i]["text"], candidates[i]["filename"])
-        if is_content:
+        
+    end = len(results) - 1
+    for i in range(len(results) - 1, start - 1, -1):
+        if results[i]:
             end = i
             break
+            
     return candidates[start:end + 1]
 
 
@@ -151,12 +162,12 @@ def collect_candidates(book: epub.EpubBook) -> list[dict]:
 # ##################################################################
 # extract chapters
 # parse epub and return list of chapter info objects
-def extract_chapters(epub_path: Path, book: epub.EpubBook | None = None) -> tuple[str, str, list[ChapterInfo]]:
+async def extract_chapters(epub_path: Path, book: epub.EpubBook | None = None) -> tuple[str, str, list[ChapterInfo]]:
     if book is None:
         book = epub.read_epub(str(epub_path))
     title, author = get_metadata(book)
     candidates = collect_candidates(book)
-    trimmed = asyncio.run(trim_non_content(candidates))
+    trimmed = await trim_non_content(candidates)
     chapters = []
     for i, cand in enumerate(trimmed, start=1):
         chapter_title = cand["title"] if cand["title"] else f"Chapter {i}"
@@ -167,6 +178,17 @@ def extract_chapters(epub_path: Path, book: epub.EpubBook | None = None) -> tupl
             original_file=cand["filename"],
         ))
     return title, author, chapters
+
+
+# ##################################################################
+# write single chapter
+# write a single chapter info object to the chapters directory
+def write_single_chapter(chapters_dir: Path, chapter: ChapterInfo) -> Path:
+    filename = f"{chapter.number:02d}-{normalize_name(chapter.title)[:40]}.txt"
+    chapter_path = chapters_dir / filename
+    if not chapter_path.exists():
+        chapter_path.write_text(chapter.text, encoding="utf-8")
+    return chapter_path
 
 
 # ##################################################################
@@ -182,10 +204,7 @@ def write_chapters(output_dir: Path, title: str, author: str, chapters: list[Cha
         intro_path.write_text(intro_text, encoding="utf-8")
     written.append(intro_path)
     for chapter in chapters:
-        filename = f"{chapter.number:02d}-{normalize_name(chapter.title)[:40]}.txt"
-        chapter_path = chapters_dir / filename
-        if not chapter_path.exists():
-            chapter_path.write_text(chapter.text, encoding="utf-8")
+        chapter_path = write_single_chapter(chapters_dir, chapter)
         written.append(chapter_path)
     return written
 
@@ -237,9 +256,34 @@ def get_output_dir(epub_path: Path) -> Path:
 # ##################################################################
 # extract epub
 # main entry point to extract an epub to chapters directory
-def extract_epub(epub_path: Path, output_dir: Path) -> tuple[str, str, list[Path]]:
+async def extract_epub(epub_path: Path, output_dir: Path) -> tuple[str, str, list[Path]]:
+    hash_path = output_dir / ".extract_hashes.json"
+    stored_hashes = load_hashes(hash_path)
+    
+    # Compute hash of epub file (size and mtime)
+    epub_stat = epub_path.stat()
+    current_hash = get_hash({
+        "path": str(epub_path),
+        "size": epub_stat.st_size,
+        "mtime": epub_stat.st_mtime
+    })
+    
+    # Check if we can skip
+    chapters_dir = output_dir / "chapters"
+    if chapters_dir.exists() and check_hash(stored_hashes, "epub", current_hash):
+        # We still need title and author
+        book = epub.read_epub(str(epub_path))
+        title, author = get_metadata(book)
+        written = sorted(chapters_dir.glob("*.txt"))
+        return title, author, written
+
     book = epub.read_epub(str(epub_path))
     extract_cover_image(book, output_dir)
-    title, author, chapters = extract_chapters(epub_path, book)
+    title, author, chapters = await extract_chapters(epub_path, book)
     written = write_chapters(output_dir, title, author, chapters)
+    
+    # Save hash after successful extraction
+    stored_hashes["epub"] = current_hash
+    save_hashes(hash_path, stored_hashes)
+    
     return title, author, written
