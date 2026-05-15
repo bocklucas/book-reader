@@ -31,6 +31,37 @@ llama-server \
 
 ## Installation
 
+### Docker (recommended)
+
+```bash
+git clone <repo-url>
+cd book-reader
+cp .env.example .env   # edit with your LLM/TTS server URLs
+mkdir -p input output
+```
+
+Place your EPUB files in the `input/` directory, then run:
+
+```bash
+docker compose run --rm book-reader create input/MyBook.epub
+```
+
+Output will appear in `output/`. The container uses `network_mode: host` so `localhost` URLs in `.env` reach services running on the host machine.
+
+Other commands work the same way:
+
+```bash
+docker compose run --rm book-reader create input/MyBook.epub --max-chapters 5
+```
+
+To rebuild the image after pulling updates:
+
+```bash
+docker compose build
+```
+
+### Local (without Docker)
+
 Clone the repository and install dependencies into a local virtual environment:
 
 ```bash
