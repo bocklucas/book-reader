@@ -1,6 +1,58 @@
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
+
+
+# ##################################################################
+# get hash
+# stable sha256 hex of a json-serializable object
+def get_hash(obj) -> str:
+    encoded = json.dumps(obj, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+# ##################################################################
+# get file hash
+# sha256 hex of the bytes of a file (empty string if file missing)
+def get_file_hash(path: Path) -> str:
+    p = Path(path)
+    if not p.exists():
+        return ""
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# ##################################################################
+# load hashes
+# read a hashes-json file, returning {} if missing or corrupt
+def load_hashes(path: Path) -> dict:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+# ##################################################################
+# save hashes
+# write hashes dict to a json file (creates parent dir)
+def save_hashes(path: Path, hashes: dict) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(hashes, indent=2), encoding="utf-8")
+
+
+# ##################################################################
+# check hash
+# True iff hashes[key] == expected
+def check_hash(hashes: dict, key: str, expected: str) -> bool:
+    return hashes.get(key) == expected
 
 
 # ##################################################################
